@@ -1,17 +1,24 @@
 const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
-const User = require('./models/User.js');
 const bcrypt = require('bcrypt'); 
 const jwt = require('jsonwebtoken');
 const cookieParser = require('cookie-parser');
 require('dotenv').config();
 const app = express();
+const multer = require('multer');
+const fs = require('fs');
+const imageDownloader = require('image-downloader');
+
+const User = require('./models/User.js');
+const Place = require('./models/place');
+
 const bcryptSalt = bcrypt.genSaltSync(12);
 const jwtSecret='dsafhlkhwelfasfadgguoriuq';
 
 app.use(express.json());
 app.use(cookieParser());
+app.use('/uploads', express.static(__dirname+'/uploads'));
 app.use(cors({
     credentials:true,
     origin:'http://127.0.0.1:5173',
@@ -75,7 +82,53 @@ app.get('/profile',(req,res)=>{
 
 app.post('/logout', (req,res)=>{
     res.cookie('token','').json(true);
-})
+});
+
+app.post('/uploads-by-link',async (req,res)=>{
+    const {link} = req.body;
+    const newName ='photo' + Date.now() + '.jpg';
+    await imageDownloader.image({
+        url:link,
+        dest: __dirname+'/uploads/'+newName,
+    });
+    res.json(newName);
+});
+
+const photosMiddleware = multer({dest:'uploads'});
+app.post('/upload', photosMiddleware.array('photos',10),(req,res)=>{
+    const uploadedFiles = [];
+    for(let i=0;i<req.files.length;i++){
+        const {path, originalname} = req.files[i];
+        const parts = originalname.split('.');
+        const ext = parts[parts.length-1];
+        const newPath = path + '.' + ext;
+        fs.renameSync(path, newPath);
+        uploadedFiles.push(newPath.replace('uploads\\',''));
+    }
+    res.json(uploadedFiles);
+});
+
+app.post('/places', (req,res)=>{
+    const {token} = req.cookies;
+    const {
+        title, address, addedPhotos,
+        description, perks, extraInfo, 
+        checkIn, checkOut, maxGuests
+    } = req.body;
+    jwt.verify(token, jwtSecret, {}, async (err, userData)=>{
+        if(err) {
+            console.log('We have an error');
+            throw err; 
+        }
+        const placeDoc = await Place.create({
+            owner: userData.id,
+            title, address, addedPhotos,
+            description, perks, extraInfo, 
+            checkIn, checkOut, maxGuests
+        });
+        res.json({placeDoc});
+    });
+});
 
 app.listen(4000, function(){
     console.log('Server listening on 4000');
